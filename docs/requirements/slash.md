@@ -53,10 +53,9 @@ Owner 和 User 可以随时查看当前 Session 的状态、用量与供应商�
 - Session 状态：模型、推理强度档位、未完成子 Session 数
 - 用量与费用：上下文窗口占用率、缓存命中率、token 用量、预估费用
 - 供应商账户信息：余额、用量配额
-- Owner 追加指令列表
 
 #### 输出规则
-除 System Prompt 追加指令列表仅 Owner 可见外，其余查询项对所有调用者可见。
+全部查询项对所有调用者可见。
 
 > **交叉引用**：Session 的模型取值详见 [llm §F11](llm.md)（Session 模型选择）。
 > **交叉引用**：推理强度的档位取值与默认值见 [llm §F4](llm.md)（推理强度控制）。
@@ -64,7 +63,6 @@ Owner 和 User 可以随时查看当前 Session 的状态、用量与供应商�
 > **交叉引用**：供应商账户信息的查询范围、支持情况与失败处置见 [llm §F1](llm.md)（多供应商统一对话）。
 > **交叉引用**：子 Session 的未完成判定详见 [session §F11](session.md)（Session 活跃维度）。
 > **交叉引用**：子 Session 完成的判定条件详见 [session §F7](session.md)（运行健康与安全）。
-> **交叉引用**：追加指令见 [system_prompt §F5](system_prompt.md)（追加指令管理）。
 
 ### F5. 上下文压缩
 
@@ -83,22 +81,6 @@ Owner 和 User 可以手动触发对话历史的上下文压缩。
 - 超过 500 字符（按字符数计，不计首尾空白）：直接拒绝并返回用法提示，不截断
 
 > **交叉引用**：压缩引擎的压缩范围和行为定义在 [session §F3](session.md)（长对话压缩）。
-
-### F6. System Prompt 追加
-
-Owner 可以在运行时管理 System Prompt 追加区中的指令，无需修改配置文件。多次追加的内容叠加保留，不覆盖已有的追加指令。该功能仅 Owner 可用。
-
-**指令**：
-- `/system add <内容>`：追加一条指令
-- `/system` 或 `/system list`：列出当前所有 Owner 追加指令
-- `/system clear`：清除全部 Owner 追加指令
-
-#### 限制
-- 追加内容超过 500 字符（按字符数计，不计首尾空白）：直接拒绝并返回用法提示，不截断
-- `/system add` 不带内容：返回用法提示
-
-> **交叉引用**：追加区在 System Prompt 中的位置由 [system_prompt §F5](system_prompt.md)（追加指令管理）定义。
-> **交叉引用**：追加内容的存储和持久化由 [session §F2](session.md)（恢复时的追加指令保留）定义。
 
 ### F8. 命令执行
 
