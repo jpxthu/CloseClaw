@@ -80,12 +80,6 @@ Fake LLM Server 配有一套 JSON 格式的协议 fixture，覆盖 OpenAI 与 An
 
 这套 fixture 用于单元测试：既验证 Fake LLM Server 生成的响应符合协议格式，也验证 CloseClaw 能正确解析这些响应。
 
-相关开发必须以仓库内的[供应商实采 fixture](../../tests/fixtures/llm/README.md)为协议行为与用量语义的依据；[Fake LLM 合成 fixture](../../tests/fixtures/fake_llm/)用于确定性场景和算法边界测试，不能替代实采材料证明供应商能力，也不能因实采尚未覆盖某项就取消本模块要求的模拟能力。
-
-Fake LLM 生成端与 CloseClaw 消费端均必须加入直接读取 fixture 文件的离线单元测试（UT），分别验证生成响应与实采已证实的格式、字段语义一致，以及协议解析和用量统计正确。仅测试手工构造的响应、复制样本数值后脱离 fixture 文件作断言，不算完成基于 fixture 的 UT；合成用例的覆盖与实采证据的覆盖须明确区分。
-
-> **交叉引用**：实采依据、证据边界及依赖 fixture 文件的 UT 要求。详见 [llm §F9](llm.md)（用量统计）。
-
 ## 非功能需求
 
 ### 性能
