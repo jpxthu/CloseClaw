@@ -179,8 +179,9 @@ Slash 模块在以下环节记录调试日志：
 **指令**：
 - `/workflow <名称>`：启动对应的 workflow
 
-`/workflow` 为非 Immediate 指令：满足排队条件时排队等待，待排队条件解除后执行。启动语义由 workflow 模块定义。
+`/workflow` 为非 Immediate 指令。启动语义由 workflow 模块定义。
 
+> **交叉引用**：非 Immediate 指令的排队与执行详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 > **交叉引用**：排队条件的定义详见 [session §F10](session.md)（消息排队）。
 > **交叉引用**：启动语义与 workflow 模式进入详见 [workflow §F2](workflow.md)（workflow 启动）。
 > **交叉引用**：workflow 模式退出（生命周期与清理）详见 [workflow §F8](workflow.md)（流程生命周期）。
@@ -206,7 +207,5 @@ Slash 模块在以下环节记录调试日志：
 > **交叉引用**：沙盒模式的语义与差异详见 [permission §F12](permission.md)（沙盒）。
 
 ## 非功能需求
-
-标注为 Immediate 的指令不受排队条件限制，调用者无需等待当前 Session 正在进行的推理与同步工具调用结束。
 
 > **交叉引用**：Immediate 指令的可达性由 Gateway 的排队决策保证。详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
