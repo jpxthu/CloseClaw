@@ -17,10 +17,10 @@ Owner 通过 Agent 配置档案指定 Bootstrap 文件目录。主 Agent Session
 
 #### Bootstrap 内容与加载
 
-Owner 在 Agent 的 Bootstrap 文件目录下通过一系列配置文件（统称 Bootstrap 文件）定义 Agent 的身份、操作规程、工具使用指南和 Owner 偏好。其中身份由角色定义和身份声明构成，Owner 偏好对应 Owner 信息文件。Bootstrap 文件属于 Agent 自身配置，同一 Agent 对所有 User 表现一致的人格。这些 Bootstrap 文件在 Agent 每次 Session 启动时自动加载，作为 System Prompt 的核心组成部分。
+Owner 在 Agent 的 Bootstrap 文件目录下通过一系列配置文件（统称 Bootstrap 文件）定义 Agent 的身份、操作规程、工具使用指南和 Owner 偏好。其中身份由角色定义和身份声明构成，Owner 偏好对应 Owner 信息文件。Bootstrap 文件属于 Agent 自身配置，同一 Agent 对所有 User 表现一致的人格。这些 Bootstrap 文件按 Session 类型的加载范围自动加载，作为 System Prompt 的核心组成部分。
 
 - 必须加载的文件：操作规程、角色定义、身份声明、Owner 信息、工具使用指南
-- 可选加载的内容：自定义引导指令、长期记忆。自定义引导指令是 Bootstrap 文件，长期记忆不是 Bootstrap 文件
+- 其他相关内容：自定义引导指令、长期记忆。自定义引导指令是 Bootstrap 文件，长期记忆不是 Bootstrap 文件
 
 文件不存在时静默跳过，不报错。多文件按固定顺序注入，操作规程排在最前。System Prompt 各组成部分按固定顺序组装；具体组装顺序和格式由设计文档定义。
 
@@ -53,7 +53,7 @@ Agent 需要在 System Prompt 中看到当前可用的工具清单，以便在�
 
 ### F3. 长期记忆注入
 
-Agent 获取跨 Session 保留的长期记忆内容，来源为 memory 模块升格产出的规则文件；升格功能暂缓期间无规则文件，长期记忆内容为空。长期记忆在主 Agent Session 启动时加载，作为 System Prompt 的组成部分；子 Session 不加载。
+Agent 获取跨 Session 保留的长期记忆内容，来源为 memory 模块升格产出的规则文件；升格功能暂缓期间无规则文件，长期记忆内容为空。长期记忆作为 System Prompt 的组成部分，其加载范围由下述交叉引用统一定义。
 
 > **交叉引用**：各 Session 类型的加载范围。详见 [F8](#f8-session-类型适配)（Session 类型适配）。
 > **交叉引用**：记忆的挖掘机制。详见 [memory §F1](memory.md)（Session 结束后自动挖掘记忆）。
@@ -136,7 +136,7 @@ System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机�
 | 子 Session | 仅加载必须文件，不加载自定义引导指令 | 不加载 | 工具清单与技能清单 |
 | 无 Bootstrap 文件的 Session | 不加载 | 不加载 | 工具清单与技能清单 |
 
-> **交叉引用**：必须文件与可选内容。详见 [F1](#f1-身份与行为准则定义)（身份与行为准则定义）。
+> **交叉引用**：Bootstrap 文件与相关内容。详见 [F1](#f1-身份与行为准则定义)（身份与行为准则定义）。
 > **交叉引用**：工具清单注入。详见 [F2](#f2-工具清单注入)（工具清单注入）。
 > **交叉引用**：技能清单。详见 [skills §F4](skills.md)（技能清单）。
 
