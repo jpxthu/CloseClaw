@@ -18,7 +18,7 @@
 
 | 模块 | 简述 | 状态 |
 |------|------|------|
-| [agent](agent.md) | Agent 静态身份与配置档案组合、身份人格分离、Agent workspace 归属、初始创建与配置查询 | ✅
+| [agent](agent.md) | Agent 静态身份与配置档案组合、身份人格分离、两类 workspace 归属、初始创建与配置查询 | ✅
 | [cli](cli.md) | 终端对话、daemon 管理、配置向导 | ✅
 | [common](common.md) | 跨模块共享数据结构与接口契约（无独立功能） | ✅
 | [config](config.md) | 多文件配置结构、Agent 注册清单、安全写入、配置重载、凭据隔离 | ✅

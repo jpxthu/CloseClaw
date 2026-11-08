@@ -84,12 +84,12 @@ Owner 和 User 可以手动触发对话历史的上下文压缩。
 
 ### F8. 命令执行
 
-`/exec` 仅 Owner 可用，用于执行 Shell 命令。命令在当前 Session 对应的 Agent 与当前调用者组成的 Agent-User 组合的 workspace 路径下执行。
+`/exec` 仅 Owner 可用，用于执行 Shell 命令。命令在当前 Session 的 Agent 与调用者组合的 Agent-User workspace 下执行。
 
 **指令**：
 - `/exec <命令>`：执行 Shell 命令
 
-> **交叉引用**：workspace 的定义详见 [permission §F3](permission.md)（权限决策模型）。
+> **交叉引用**：两类 workspace 的定义与归属详见 [agent §F7](agent.md)（两类 workspace）。
 > **交叉引用**：Owner 的命令执行豁免详见 [permission §F4](permission.md)（Owner 特权）。
 > **交叉引用**：命令的黑名单与白名单详见 [permission §F2](permission.md)（权限维度）。
 > **交叉引用**：斜杠指令不经过沙盒的规则详见 [permission §F12](permission.md)（沙盒）。

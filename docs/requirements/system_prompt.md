@@ -23,7 +23,7 @@ AGENTS.md 是 Agent 唯一的身份与行为准则文件，可承载以下内容
 
 为便于统一维护，文件名固定为 `AGENTS.md`。为使同一 Agent 的所有 User 共用一致的身份与行为准则，文件存放于该 Agent 的 Agent workspace 根目录，而非任一 Agent-User workspace；不提供单独指定来源目录的配置。
 
-> **交叉引用**：Agent workspace 的定义与归属。详见 [agent §F7](agent.md)（Agent workspace）。
+> **交叉引用**：Agent workspace 的定义与归属。详见 [agent §F7](agent.md)（两类 workspace）。
 > **交叉引用**：AGENTS.md 与能力配置的区分。详见 [agent §F2](agent.md)（身份与人格分离）。
 > **交叉引用**：AGENTS.md 的修改权限。详见 [permission §F4](permission.md)（Owner 特权）。
 
@@ -75,8 +75,8 @@ Agent 获取跨 Session 保留的长期记忆内容，来源为 memory 模块升
 
 这些上下文信息每次 API 调用即时获取，不持久化存储。
 
-> **交叉引用**：Agent workspace 的定义。详见 [agent §F7](agent.md)（Agent workspace）。
-> **交叉引用**：Agent-User workspace 的定义与两类 workspace 的授权。详见 [permission §F3](permission.md)（权限决策模型）。
+> **交叉引用**：两类 workspace 的定义与归属。详见 [agent §F7](agent.md)（两类 workspace）。
+> **交叉引用**：两类 workspace 的授权与决策规则。详见 [permission §F3](permission.md)（权限决策模型）。
 > **交叉引用**：运行时上下文与追加区的组装顺序。详见 [System Prompt 设计](../design/system_prompt/README.md#请求每次-api-调用)（请求（每次 API 调用））。
 
 ### F5. 系统上下文注入
