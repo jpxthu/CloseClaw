@@ -84,7 +84,7 @@ Owner 和 User 可以手动触发对话历史的上下文压缩。
 
 ### F8. 命令执行
 
-`/exec` 仅 Owner 可用，用于执行 Shell 命令。命令在当前 Session 的 Agent 与调用者组合的 Agent-User workspace 下执行。
+`/exec` 仅 Owner 可用，用于执行 Shell 命令。命令在 Session 所属 Agent-User workspace 下执行。
 
 **指令**：
 - `/exec <命令>`：执行 Shell 命令

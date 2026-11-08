@@ -79,7 +79,7 @@ Agent 的能力边界由配置档案中的各项能力配置与权限规则共�
 每个 Agent 拥有两类 workspace，用途与归属不同：
 
 - **Agent workspace**：该 Agent 专属，存放属于该 Agent 自身、跨 User 共用的文件；同一 Agent 的所有 User 共用一份，不能由任一 User 的 Agent-User workspace 代替。
-- **Agent-User workspace**：每个 Agent-User 组合专属的独立目录，位于操作系统标准配置目录下，由系统自动创建和管理，与 Agent workspace 及同一 Agent 下其它 User 的目录相区分。
+- **Agent-User workspace**：每个 Agent-User 组合专属的独立目录，位于操作系统标准配置目录下，由系统自动创建和管理，与 Agent workspace 及同一 Agent 下其它 User 的 Agent-User workspace 相区分。
 
 > **交叉引用**：两类 workspace 的授权与决策规则。详见 [permission §F3](permission.md)（权限决策模型）。
 > **交叉引用**：两类 workspace 路径向 Session 的提供。详见 [system_prompt §F4](system_prompt.md)（运行时上下文注入）。

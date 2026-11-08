@@ -21,9 +21,9 @@ AGENTS.md 是 Agent 唯一的身份与行为准则文件，可承载以下内容
 
 上述内容仅从 AGENTS.md 加载，不通过多个身份与行为准则文件分别加载。长期记忆是独立的数据源，不属于 AGENTS.md。
 
-为便于统一维护，文件名固定为 `AGENTS.md`。为使同一 Agent 的所有 User 共用一致的身份与行为准则，文件存放于该 Agent 的 Agent workspace 根目录，而非任一 Agent-User workspace；不提供单独指定来源目录的配置。
+为便于统一维护，文件名固定为 `AGENTS.md`。文件存放于该 Agent 的 Agent workspace 根目录，而非任一 Agent-User workspace；不提供单独指定来源目录的配置。
 
-> **交叉引用**：Agent workspace 的定义与归属。详见 [agent §F7](agent.md)（两类 workspace）。
+> **交叉引用**：Agent workspace 的归属。详见 [agent §F7](agent.md)（两类 workspace）。
 > **交叉引用**：AGENTS.md 与能力配置的区分。详见 [agent §F2](agent.md)（身份与人格分离）。
 > **交叉引用**：AGENTS.md 的修改权限。详见 [permission §F4](permission.md)（Owner 特权）。
 
