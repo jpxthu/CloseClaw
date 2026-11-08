@@ -8,42 +8,48 @@ System Prompt 为 Agent 提供身份与行为准则、工具与技能清单、�
 
 ### F1. 身份与行为准则定义
 
-#### 加载配置
+#### AGENTS.md 内容与位置
 
-Owner 通过 Agent 配置档案指定 Bootstrap 文件目录。主 Agent Session 完整加载该目录下属于 Bootstrap 集合的文件，不提供完整/精简模式切换，也不提供禁用全部 Bootstrap 文件的开关。
+AGENTS.md 是 Agent 唯一的身份与行为准则文件，可承载以下内容：
 
-> **交叉引用**：人格加载配置在档案中的承载维度。详见 [agent §F1](agent.md)（Agent 配置档案）。
-> **交叉引用**：人格加载配置随 Agent 档案生效的边界。详见 [session §F1](session.md)（对话持久化与恢复）。
-> **交叉引用**：Bootstrap 目录的配置字段及默认值。详见 [Agent 配置档案设计](../design/agent/agent-config.md#配置字段configjson)（配置字段（config.json））。
-> **交叉引用**：Session 类型与目录缺失时的加载范围。详见 [F8](#f8-session-类型适配)（Session 类型适配）。
+- 操作规程
+- 角色定义
+- 身份声明
+- Owner 信息与偏好
+- 工具使用指南
+- 自定义引导指令
 
-#### Bootstrap 内容与加载
+上述内容仅从 AGENTS.md 加载，不通过多个身份与行为准则文件分别加载。长期记忆是独立的数据源，不属于 AGENTS.md。
 
-Owner 在 Agent 的 Bootstrap 文件目录下通过一系列配置文件（统称 Bootstrap 文件）定义 Agent 的身份、操作规程、工具使用指南和 Owner 偏好。其中身份由角色定义和身份声明构成，Owner 偏好对应 Owner 信息文件。Bootstrap 文件属于 Agent 自身配置，同一 Agent 对所有 User 表现一致的人格。这些 Bootstrap 文件按 Session 类型的加载范围自动加载，作为 System Prompt 的核心组成部分。
+为便于统一维护，文件名固定为 `AGENTS.md`。为使同一 Agent 的所有 User 共用一致的身份与行为准则，文件存放于该 Agent 的 Agent workspace 根目录，而非任一 Agent-User workspace；不提供单独指定来源目录的配置。
 
-- 必需文件：操作规程、角色定义、身份声明、Owner 信息、工具使用指南
-- 其他相关内容：自定义引导指令、长期记忆
+> **交叉引用**：Agent workspace 的定义与归属。详见 [agent §F7](agent.md)（Agent workspace）。
+> **交叉引用**：AGENTS.md 与能力配置的区分。详见 [agent §F2](agent.md)（身份与人格分离）。
+> **交叉引用**：AGENTS.md 的修改权限。详见 [permission §F4](permission.md)（Owner 特权）。
 
-自定义引导指令是 Bootstrap 文件，长期记忆不是 Bootstrap 文件。
+#### 自动加载
 
-文件不存在时静默跳过，不报错。多文件按固定顺序注入，操作规程排在最前。System Prompt 各组成部分按固定顺序组装；具体组装顺序和格式由设计文档定义。
+Session 自动完整加载所属 Agent 的 AGENTS.md，作为 System Prompt 的核心组成部分；不提供完整/精简模式切换，也不提供禁用该文件加载的开关。
 
-> **交叉引用**：Bootstrap 文件名与职责对应、具体注入顺序及格式。详见 [System Prompt 静态层设计](../design/system_prompt/static-layer.md#session-类型与-bootstrap-文件加载)（Session 类型与 Bootstrap 文件加载）。
+System Prompt 各组成部分按固定顺序组装；具体组装顺序和格式由设计文档定义。
+
+> **交叉引用**：主、子 Session 的加载机制与缺失降级。详见 [F8](#f8-session-类型适配)（Session 类型适配）。
 > **交叉引用**：长期记忆的来源与加载。详见 [F3](#f3-长期记忆注入)（长期记忆注入）。
-> **交叉引用**：不变前缀的复用与重建触发。详见 [F6](#f6-内容缓存与自动刷新)（内容缓存与自动刷新）。
+> **交叉引用**：不变前缀的复用与重新组装触发。详见 [F6](#f6-内容缓存与自动刷新)（内容缓存与自动刷新）。
 
 #### 身份标识边界
 
-Agent 的唯一 ID 与显示名称是配置档案中的身份标识，不属于 Bootstrap 文件，不注入 System Prompt。Bootstrap 文件承载引导内容，与配置档案中的内部标识相区分。
+配置档案中的身份标识字段不注入 System Prompt。
 
+> **交叉引用**：身份标识的范围。详见 [agent §F1](agent.md)（Agent 配置档案）。
 > **交叉引用**：能力配置与身份人格的区分。详见 [agent §F2](agent.md)（身份与人格分离）。
 
 ### F2. 工具与技能清单注入
 
-Agent 需要在 System Prompt 中看到当前可用的工具清单，以便在对话中正确选择和使用。本节工具清单与 F1 中列出的工具使用指南（Bootstrap 文件之一）相互独立——前者是各工具的具体功能说明（由系统生成），后者是 Owner 编写的工具使用指南（高层约束）。
+Agent 需要在 System Prompt 中看到当前可用的工具清单，以便在对话中正确选择和使用。本节工具清单与 F1 中 AGENTS.md 承载的工具使用指南相互独立——前者是各工具的具体功能说明（由系统生成），后者是 Owner 编写的工具使用指南（高层约束）。
 
-- **工具清单内容**：字段内容、常用/延迟分组、风险标记、长度截断与工具检索指引由 [tools §F1](tools.md)（工具注册与发现）定义。本模块消费 tools 模块产出的工具清单结果
-- **技能清单内容**：内容与注入位置由 skills 模块定义。技能正文不预先进入 System Prompt，按需加载规则由 skills 模块定义
+- **工具清单内容**：内容与呈现规则由 [tools §F1](tools.md)（工具注册与发现）定义，本模块消费其产出的工具清单。
+- **技能清单内容**：内容与注入位置由 skills 模块定义。技能正文不预先进入 System Prompt，按需加载规则由 skills 模块定义。
 
 > **交叉引用**：当前 Agent 可用的工具范围（白名单/黑名单）。详见 [tools §F1](tools.md)（工具注册与发现）。本模块负责将可用工具清单产出为 System Prompt 中的分组描述文本。
 > **交叉引用**：技能清单的内容与注入位置。详见 [skills §F4](skills.md)（技能清单）。
@@ -64,11 +70,13 @@ Agent 获取跨 Session 保留的长期记忆内容，来源为 memory 模块升
 每次 API 调用时，Agent 需要知道当前的运行时上下文：
 
 - **频道上下文**：当前 Session 所在的频道名称
-- **workspace**：当前 Session 所属 Agent-User 组合的 workspace 路径
+- **Agent-User workspace**：当前 Session 所属 Agent-User 组合的 workspace 路径
+- **Agent workspace**：当前 Session 所属 Agent 自身的 workspace 路径，使 Agent 能定位其共享文件
 
 这些上下文信息每次 API 调用即时获取，不持久化存储。
 
-> **交叉引用**：workspace 的定义与自动授权。详见 [permission §F3](permission.md)（权限决策模型）。
+> **交叉引用**：Agent workspace 的定义。详见 [agent §F7](agent.md)（Agent workspace）。
+> **交叉引用**：Agent-User workspace 的定义与两类 workspace 的授权。详见 [permission §F3](permission.md)（权限决策模型）。
 > **交叉引用**：运行时上下文与追加区的组装顺序。详见 [System Prompt 设计](../design/system_prompt/README.md#请求每次-api-调用)（请求（每次 API 调用））。
 
 ### F5. 系统上下文注入
@@ -83,7 +91,7 @@ System Prompt 末尾的追加区承载系统注入内容（如 workflow 上下�
 
 #### 不变前缀
 
-System Prompt 的不变前缀包含 Bootstrap 文件、工具清单、技能清单与长期记忆，按各 Session 类型的加载范围取舍。运行时上下文与系统注入内容不属于此前缀。
+System Prompt 的不变前缀包含 AGENTS.md、工具清单、技能清单与长期记忆，按各 Session 类型的加载范围取舍。运行时上下文与系统注入内容不属于此前缀。
 
 不变前缀按固定顺序产出，各数据源内容及加载范围不变时，多次组装结果逐字节相同。
 
@@ -103,11 +111,11 @@ System Prompt 的不变前缀包含 Bootstrap 文件、工具清单、技能清�
 
 #### 数据源刷新与复用
 
-重新组装时从各数据源（Bootstrap 文件、工具注册中心、技能注册中心、长期记忆规则文件）读取最新内容。两次组装之间不响应数据源变更——文件修改、工具或技能注册中心变更均在下次组装时反映。
+重新组装时从各数据源（AGENTS.md、工具注册中心、技能注册中心、长期记忆规则文件）读取最新内容。两次组装之间不响应数据源变更——包括 Owner 在当前对话中修改 AGENTS.md 在内的文件修改，以及工具或技能注册中心变更，均在下次组装时反映，不立即重新组装当前 Session 的不变前缀。
 
 每次 API 调用复用已组装的不变前缀，不重复读取和组装；运行时上下文与系统注入内容分别按各自规则提供。
 
-> **交叉引用**：Bootstrap 文件等数据源变更的生效机制。详见 [config §F4](config.md)（配置重载）；本节仅约定两次组装之间不响应此类变更。
+> **交叉引用**：配置类数据源变更的检测与重载。详见 [config §F4](config.md)（配置重载）；AGENTS.md 的加载与刷新以本节为准。
 > **交叉引用**：运行时上下文。详见 [F4](#f4-运行时上下文注入)（运行时上下文注入）。
 > **交叉引用**：系统注入内容。详见 [F5](#f5-系统上下文注入)（系统上下文注入）。
 
@@ -127,27 +135,29 @@ System Prompt 的不变前缀应利用 AI 服务商的前缀缓存机制，减�
 
 #### 基础加载范围
 
-下表仅列 Bootstrap 文件、长期记忆与清单类内容。清单类内容包含工具清单与技能清单。
+主 Agent Session 与子 Session 采用相同的 AGENTS.md 加载机制，均完整加载所属 Agent 的文件；spawn 不提供 `light-context` 属性或其他用于精简 AGENTS.md 加载的选项。跨 Agent spawn 时，加载目标 Agent 的 AGENTS.md，而非父 Agent 的文件。
 
-| Session 类型 | Bootstrap 文件 | 长期记忆 | 清单类内容 |
+下表仅列 AGENTS.md、长期记忆与清单类内容。清单类内容包含工具清单与技能清单。
+
+| Session 类型或加载状态 | AGENTS.md | 长期记忆 | 清单类内容 |
 |---|---|---|---|
-| 主 Agent Session | 完整加载必需文件与自定义引导指令 | 加载 | 工具清单与技能清单 |
-| 子 Session | 仅加载必需文件，不加载自定义引导指令 | 不加载 | 工具清单与技能清单 |
-| 无 Bootstrap 文件的 Session | 不加载 | 不加载 | 工具清单与技能清单 |
+| 主 Agent Session（AGENTS.md 存在） | 完整加载 | 加载 | 工具清单与技能清单 |
+| 子 Session（AGENTS.md 存在） | 完整加载 | 不加载 | 工具清单与技能清单 |
+| AGENTS.md 缺失的 Session | 不加载 | 不加载 | 工具清单与技能清单 |
 
-> **交叉引用**：Bootstrap 文件与相关内容。详见 [F1](#f1-身份与行为准则定义)（身份与行为准则定义）。
+> **交叉引用**：AGENTS.md 与相关内容。详见 [F1](#f1-身份与行为准则定义)（身份与行为准则定义）。
 > **交叉引用**：工具与技能清单注入。详见 [F2](#f2-工具与技能清单注入)（工具与技能清单注入）。
 > **交叉引用**：技能清单。详见 [skills §F4](skills.md)（技能清单）。
 
-#### 目录缺失降级
+#### 缺失降级
 
-Bootstrap 文件目录缺失时，按“无 Bootstrap 文件的 Session”兜底运行，以保证对话不中断，并记录降级告警日志。
+AGENTS.md 缺失时，按上表的缺失状态兜底运行，保证对话不中断。文件缺失时静默跳过；若其所在的 Agent workspace 目录也不存在，额外记录降级告警日志。
 
 > **交叉引用**：告警日志级别。详见 [debug_log §F2](debug_log.md)（分层日志级别）。
 
 #### 运行时与系统注入内容
 
-运行时上下文（频道上下文、workspace）对所有 Session 类型均加载。系统注入内容由对应功能模块按其功能需求提供，上表不限定其加载范围。
+运行时上下文对所有 Session 类型均加载。系统注入内容由对应功能模块按其功能需求提供，上表不限定其加载范围。
 
 > **交叉引用**：运行时上下文。详见 [F4](#f4-运行时上下文注入)（运行时上下文注入）。
 > **交叉引用**：系统注入内容。详见 [F5](#f5-系统上下文注入)（系统上下文注入）。
@@ -167,4 +177,4 @@ Bootstrap 文件目录缺失时，按“无 Bootstrap 文件的 Session”兜底
 
 ### 安全性
 
-- 子 Session 不暴露长期记忆内容和自定义引导指令
+- 子 Session 不加载长期记忆内容
