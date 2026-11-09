@@ -4,7 +4,7 @@
 
 Agent 模块定义每个 AI Agent 的静态身份与配置档案组合，使 Owner 可以配置和查询差异化的 Agent。
 
-Agent 是静态的配置身份；Session 是 Agent 的运行时实例。档案中各项能力的行为规则由对应功能模块定义，本文档定义 Agent 身份、档案的组合维度及 Agent workspace 的归属。
+Agent 是静态的配置身份；Session 是 Agent 的运行时实例。档案中各项能力的行为规则由对应功能模块定义，本文档定义 Agent 身份、档案的组合维度及两类 workspace 的归属。
 
 ## 功能需求
 
@@ -47,7 +47,8 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例。档案�
 - **AGENTS.md** 承载 Agent 的身份人格与行为准则，不作为配置档案的字段或正文
 
 > **交叉引用**：AGENTS.md 的固定位置、内容与加载。详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
-> **交叉引用**：Agent workspace 的归属。详见 [F7](#f7-agent-workspace)（Agent workspace）。
+> **交叉引用**：AGENTS.md 的修改权限。详见 [permission §F4](permission.md)（Owner 特权）。
+> **交叉引用**：两类 workspace 的归属。详见 [F7](#f7-两类-workspace)（两类 workspace）。
 > **交叉引用**：权限规则与能力配置共同决定 Agent 能力边界。详见 [F3](#f3-agent-能力组合)（Agent 能力组合）。
 
 ### F3. Agent 能力组合
@@ -73,17 +74,21 @@ Agent 的能力边界由配置档案中的各项能力配置与权限规则共�
 > **交叉引用**：配置文件组织与注册清单。详见 [config §F1](config.md)（多文件配置结构）。
 > **交叉引用**：配置查询的 CLI 入口及访问限制。详见 [cli §F5](cli.md)（Agent 查询）。
 
-### F7. Agent workspace
+### F7. 两类 workspace
 
-每个 Agent 拥有独立的 Agent workspace，用于存放属于该 Agent 自身、跨 User 共用的文件。Agent workspace 与每个 Agent-User 组合的专属 Agent-User workspace 相区分，不能由任一 User 的 Agent-User workspace 代替，也不改变 Agent-User workspace 的隔离。
+每个 Agent 拥有两类 workspace，用途与归属不同：
 
-> **交叉引用**：AGENTS.md 的存放位置。详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
-> **交叉引用**：Agent workspace 路径向 Session 的提供。详见 [system_prompt §F4](system_prompt.md)（运行时上下文注入）。
+- **Agent workspace**：该 Agent 专属，存放属于该 Agent 自身、跨 User 共用的文件；同一 Agent 的所有 User 共用一份，不能由任一 User 的 Agent-User workspace 代替。
+- **Agent-User workspace**：每个 Agent-User 组合专属的独立目录，位于操作系统标准配置目录下，由系统自动创建和管理，与 Agent workspace 及同一 Agent 下其它 User 的 Agent-User workspace 相区分。
+
 > **交叉引用**：两类 workspace 的授权与决策规则。详见 [permission §F3](permission.md)（权限决策模型）。
-> **交叉引用**：Owner 对 AGENTS.md 的修改权。详见 [permission §F4](permission.md)（Owner 特权）。
+> **交叉引用**：两类 workspace 路径向 Session 的提供。详见 [system_prompt §F4](system_prompt.md)（运行时上下文注入）。
+> **交叉引用**：操作系统标准配置目录的位置。详见 [platform §F2](platform.md)（操作系统标准配置目录）。
 
 ## 非功能需求
 
 - **性能**：按 Agent ID 查询配置档案的时间复杂度为 O(1)，不随已注册 Agent 数量增长。
 - **可靠性**：Agent ID 无法解析或 Agent 配置不可用时，系统向 User 给出错误提示。
+- **可靠性**：并发创建 workspace 目录时不得相互干扰或失败。
+- **安全性**：两类 workspace 的路径不得越出各自目录——Agent-User workspace 路径不得因 Agent ID 与 User ID 的特殊取值指向其它组合的目录，Agent workspace 共用文件也不得被误认成 Agent-User 专属文件。
 - **可扩展性**：新增 Agent 能力维度时无需系统升级即可生效。
