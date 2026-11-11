@@ -17,7 +17,7 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
 - 主 Agent Session 由入站消息的平台、发送者、会话对端、账号四项标识共同确定；同一组标识下可有多个历史 Session，当前使用的是最后活跃时间最新的一个。字段定义见 [im_adapter §F2](im_adapter.md)（入站消息归一化）
 - 系统重启后，所有未归档 Session 自动恢复（整体恢复，非逐个查找）；子 Session（含持久子 Session）与主 Agent Session 一致恢复，不降级为一次性子 Session
 - Session 在 Agent 范围内隔离：消息先路由到接收该消息的机器人所绑定的 Agent（见 [gateway §F4](gateway.md)（普通消息路由到对话）），再按上述四项标识查找 Session；系统记录每个 Session 对应的 Agent ID
-- Agent 配置档案与注册清单变更在新建 Session 时生效：新建 Session（含 spawn 创建的子 Session）按该时点的配置档案加载，已运行的 Session 沿用其创建时加载的配置。被移出注册清单的 Agent 不再创建新 Session，已有 Session 不受影响
+- Agent 配置档案中除记忆配置外的内容，以及注册清单变更，在新建 Session 时生效：新建 Session（含 spawn 创建的子 Session）按该时点的上述档案内容加载，已运行的 Session 沿用其创建时加载的该部分配置。记忆配置的生效口径见 [memory §F7](memory.md)（记忆挖掘的开关与参数配置）。被移出注册清单的 Agent 不再创建新 Session，已有 Session 不受影响
 - 处于归档中或已归档的 Session 被 User 通过消息访问时（按四项标识匹配）自动恢复：
   - 若 Session 归档中，等待归档完成后自动恢复；等待期间提示 User「会话归档中，稍后恢复…」
   - 若 Session 已归档，恢复时提示 User「正在恢复会话…」
@@ -28,6 +28,7 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
 > **交叉引用**：四项标识中的「账号标识」解析走「IM 用户 → User」入站方向，双向绑定与基数规则。详见 [config §F1](config.md)（多文件配置结构）。
 > **交叉引用**：本节在入站链路中的位置。详见 [message_flow §F1](message_flow.md)（入站链路）——建议结合阅读以理解完整产品流程。
 > **交叉引用**：Agent 配置档案与注册清单变更的检测及重载。详见 [config §F4](config.md)（配置重载）。
+> **交叉引用**：记忆配置的生效口径。详见 [memory §F7](memory.md)（记忆挖掘的开关与参数配置）。
 
 ### F3. 长对话压缩
 
