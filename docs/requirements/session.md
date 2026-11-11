@@ -25,7 +25,7 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
 
 > **交叉引用**：强制开启新 Session 由 `/new` 指令触发（即使当前对话已有未归档 Session）。详见 [slash §F3](slash.md)（Session 管理）。
 > **交叉引用**：系统崩溃后的恢复流程。详见 [F7](#f7-运行健康与安全)（运行健康与安全）。
-> **交叉引用**：四项标识中的「账号标识」解析走「IM 用户 → User」入站方向，双向绑定与基数规则。详见 [config §F1](config.md)（多文件配置结构）。
+> **交叉引用**：四项标识中的「账号标识」解析走「IM 用户 → User」入站方向，双向绑定与基数规则。详见 [im_adapter §F9](im_adapter.md)（平台接入配置）。
 > **交叉引用**：本节在入站链路中的位置。详见 [message_flow §F1](message_flow.md)（入站链路）——建议结合阅读以理解完整产品流程。
 > **交叉引用**：Agent 配置档案与注册清单变更的检测及重载。详见 [config §F4](config.md)（配置重载）。
 > **交叉引用**：记忆配置的生效口径。详见 [memory §F7](memory.md)（记忆挖掘的开关与参数配置）。
@@ -136,6 +136,7 @@ Fork 模式在创建时将父 Session 的完整对话历史作为子 Session 自
 - 运行时长达到硬超时值时，系统自动终止该子 Session、级联终止其所有后代，并向父 Session 注入硬超时通知；父 Session 已归档则丢弃
 
 > **交叉引用**：目标 Agent 的注册清单与加载语义。详见 [config §F1](config.md)（多文件配置结构）。
+> **交叉引用**：配置有效性的校验口径。详见 [config §F8](config.md)（配置校验）。
 > **交叉引用**：子 Session 的模型配置与取值优先级。详见 [llm §F11](llm.md)（Session 模型选择）。
 > **交叉引用**：子 Session 的 AGENTS.md 加载机制与其他提示词内容的加载范围。详见 [system_prompt §F8](system_prompt.md)（Session 类型适配）；本节上下文模式仅决定父 Session 对话历史的继承。
 > **交叉引用**：spawn 工具的权限例外。详见 [permission §F2](permission.md)（权限维度）。

@@ -29,13 +29,13 @@
 | [agent](agent.md) | Agent 静态身份与配置档案组合、身份人格分离、两类 workspace 归属、初始创建与配置查询 | ✅
 | [cli](cli.md) | 终端对话、daemon 管理、配置向导 | ✅
 | [common](common.md) | 跨模块共享数据结构与接口契约（无独立功能） | ✅
-| [config](config.md) | 多文件配置结构、Agent 注册清单、安全写入、配置重载、凭据隔离 | ✅
-| [daemon](daemon.md) | 系统启动、优雅/强制关闭、系统级后台任务生命周期 | ✅
+| [config](config.md) | 通用配置组织、Agent 注册清单、安全写入、校验、备份恢复与重载、明文凭据保护 | ✅
+| [daemon](daemon.md) | 按依赖启动与入口独立就绪、优雅/强制关闭、系统级后台任务生命周期 | ✅
 | [debug_log](debug_log.md) | 调试日志框架：链路追踪、分级过滤、存储轮转、隐私脱敏 | ✅
 | [fake_llm](fake_llm.md) | 本地假 LLM 服务：场景驱动的确定性黑盒 E2E 测试 | ✅
 | [gateway](gateway.md) | 多平台消息接入、斜杠指令分派、出站统一处理 | ✅
-| [im_adapter](im_adapter.md) | IM 平台插件化适配、消息归一化、流式渲染 | ✅
-| [im_adapter/feishu](im_adapter/feishu.md) | 飞书平台实现：入站接收、输出展示、平台工具 | ✅
+| [im_adapter](im_adapter.md) | IM 平台配置与账户绑定、插件化适配、消息归一化、流式渲染 | ✅
+| [im_adapter/feishu](im_adapter/feishu.md) | 飞书平台实现：机器人接入配置、入站接收、输出展示、平台工具 | ✅
 | [llm](llm.md) | 模型选择、多供应商统一对话、流式输出、缓存优化、用量统计 | ✅
 | [memory](memory.md) | Session 结束后自动挖掘记忆、实体体系 | ✅
 | [message_flow](message_flow.md) | 产品核心业务链路（必读）：入站（IM → Agent）与出站（Agent → IM） | ✅

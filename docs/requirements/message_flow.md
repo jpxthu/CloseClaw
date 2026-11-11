@@ -32,7 +32,7 @@
 > **交叉引用**：步骤 8 的 System Prompt 内容组装详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
 > **交叉引用**：步骤 8 的模型对话详见 [llm §F1](llm.md)（多供应商统一对话）。
 > **交叉引用**：步骤 8 的流式输出详见 [llm §F2](llm.md)（流式实时输出）。
-> **交叉引用**：步骤 4、6 所用绑定的定义与基数规则详见 [config §F1](config.md)（多文件配置结构）。
+> **交叉引用**：步骤 4、6 所用绑定的定义与基数规则。详见 [im_adapter §F9](im_adapter.md)（平台接入配置）。
 
 ### F2. 出站链路
 
@@ -48,7 +48,7 @@ Agent 回复从生成到送达用户的完整步骤：
 > **交叉引用**：步骤 1 的展示时机与流式增量呈现详见 [im_adapter §F4](im_adapter.md)（流式增量渲染）。
 > **交叉引用**：飞书平台的具体展示规则详见 [im_adapter/feishu §F4](im_adapter/feishu.md)（飞书输出展示）。
 > **交叉引用**：步骤 2 详见 [gateway §F7](gateway.md)（出站消息统一处理）。
-> **交叉引用**：步骤 3 所用绑定的定义详见 [config §F1](config.md)（多文件配置结构）。
+> **交叉引用**：步骤 3 所用绑定的定义。详见 [im_adapter §F9](im_adapter.md)（平台接入配置）。
 > **交叉引用**：步骤 4 渲染与发送分离详见 [im_adapter §F6](im_adapter.md)（渲染与发送分离）。
 > **交叉引用**：飞书消息发送详见 [im_adapter/feishu §F3](im_adapter/feishu.md)（飞书消息发送）。
 > **交叉引用**：步骤 5 详见 [im_adapter/feishu §F7](im_adapter/feishu.md)（飞书话题与 Session 匹配）。
@@ -62,11 +62,11 @@ Agent 回复从生成到送达用户的完整步骤：
 - **入站方向**：任一接收方机器人语境下的用户标识都解析回同一个 User。
 - **出站方向**：同一个 User 可解析到各机器人应用语境下的用户标识，供 Agent 主动向某个 User 发消息时定位其在该机器人应用下的标识。
 
-这些按机器人应用语境区分的用户标识同属同一个逻辑 IM 用户，故不违反「单个 IM 平台下 IM 用户 ↔ User 一一对应」的基数规则（基数规则见 [config §F1](config.md)）。
+这些按机器人应用语境区分的用户标识同属同一个逻辑 IM 用户，故不违反「单个 IM 平台下 IM 用户 ↔ User 一一对应」的基数规则（见 [im_adapter §F9](im_adapter.md)（平台接入配置））。
 
 上述跨应用 ID 隔离与归并是经大量实测才确定的平台行为，以真实采集的平台数据为准；飞书 CLI 实测样本（含同一用户跨应用 ID 的对照事件）见 `tests/fixtures/feishu/cli-poc/`。
 
-> **交叉引用**：账户绑定的方向与基数规则详见 [config §F1](config.md)（多文件配置结构）。
+> **交叉引用**：账户绑定的方向与基数规则。详见 [im_adapter §F9](im_adapter.md)（平台接入配置）。
 > **交叉引用**：User 身份与入站身份准入详见 [permission §F1](permission.md)（身份体系）。
 
 ## 非功能需求
