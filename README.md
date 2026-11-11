@@ -14,6 +14,7 @@ cargo build && cargo nextest run
 
 | 需要了解 | 去看 |
 |----------|------|
+| 产品需求与模块解耦原则 | [需求文档](docs/requirements/README.md#模块解耦原则) |
 | 开发规范（编码、测试、Git、PR） | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | 模块设计文档 | [docs/design/](docs/design/README.md) |
 | 环境搭建 | [docs/SETUP.md](docs/SETUP.md) |
