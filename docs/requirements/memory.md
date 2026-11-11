@@ -50,7 +50,7 @@ Memory 是实验性功能：开启挖掘子功能后，Agent 可在多次 Sessio
 
 ### F2. 以实体体系组织记忆
 
-记忆围绕实体（entity）组织——把事件关联到具体的人物、主题、产品、动作等，便于记忆的组织与关联。实体类型体系在 [SAG](https://github.com/Zleap-AI/SAG) 的类型划分基础上增加兜底类型（已由 Owner 选定采用，MIT License）。
+记忆围绕实体（entity）组织——把事件关联到具体的人物、主题、产品、动作等，便于记忆的组织与关联。实体类型体系在 [SAG](https://github.com/Zleap-AI/SAG) 的类型划分基础上增加兜底类型（MIT License）。
 
 #### 实体类型
 
