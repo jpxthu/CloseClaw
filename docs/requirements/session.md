@@ -27,6 +27,7 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
 > **交叉引用**：系统崩溃后的恢复流程。详见 [F7](#f7-运行健康与安全)（运行健康与安全）。
 > **交叉引用**：四项标识中的「账号标识」解析走「IM 用户 → User」入站方向，双向绑定与基数规则。详见 [config §F1](config.md)（多文件配置结构）。
 > **交叉引用**：本节在入站链路中的位置。详见 [message_flow §F1](message_flow.md)（入站链路）——建议结合阅读以理解完整产品流程。
+> **交叉引用**：Agent 注册清单的加载语义。详见 [config §F1](config.md)（多文件配置结构）。
 > **交叉引用**：Agent 配置档案与注册清单变更的检测及重载。详见 [config §F4](config.md)（配置重载）。
 
 ### F3. 长对话压缩
@@ -81,6 +82,7 @@ User-specified retention focus: <retention focus, or "none">
 > **交叉引用**：压缩完成后 System Prompt 重新组装。详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 > **交叉引用**：上下文窗口占用情况的展示。详见 [llm §F9](llm.md)（用量统计）。
 > **交叉引用**：压缩前自动备份的通用机制。详见 [F7](#f7-运行健康与安全)（运行健康与安全）。
+> **交叉引用**：压缩配置变更的检测与重载。详见 [config §F4](config.md)（配置重载）。
 
 ### F4. 子 Session 委托与协调
 

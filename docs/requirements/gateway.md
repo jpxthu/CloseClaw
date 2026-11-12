@@ -10,7 +10,8 @@ Gateway 满足 User 通过不同 IM 平台与 CLI 渠道发送消息、使用斜
 
 User 可以通过飞书、Discord、Telegram 等 IM 平台以及 CLI 渠道发送消息，系统对不同渠道的消息采用统一的处理方式。
 
-> **交叉引用**：IM 平台的插件化接入与启用范围详见 [im_adapter §F1](im_adapter.md)（多平台插件化适配）。
+> **交叉引用**：IM 平台的插件化适配。详见 [im_adapter §F1](im_adapter.md)（多平台插件化适配）。
+> **交叉引用**：IM 平台加载与接入条件。详见 [im_adapter §F9](im_adapter.md)（IM 平台配置归属）。
 > **交叉引用**：IM 平台消息的统一形式与平台差异处理详见 [im_adapter §F2](im_adapter.md)（入站消息归一化）。
 > **交叉引用**：CLI 渠道的终端对话与调用者身份详见 [cli §F1](cli.md)（终端对话）。
 
